@@ -48,6 +48,14 @@ jobs:
             exit 1
           }
 
+          # Gather all existing subdomains (excluding current user)
+          EXISTING_SUBS=()
+          for f in records/*/*.json; do
+            [[ "$f" =~ ^records/$USER/ ]] && continue
+            SUB=$(jq -r '.subDomain' "$f")
+            EXISTING_SUBS+=("$SUB")
+          done
+
           while read STATUS FILE; do
             echo "Checking $STATUS $FILE"
 
@@ -79,11 +87,19 @@ jobs:
                 # Check valid JSON
                 jq . "$FILE" > /dev/null 2>&1 || error_exit "Invalid JSON in $FILE"
 
-                # Check required fields (camelCase)
-                for key in "githubUname" "publicEmail" "desc" "subDomain" "records"; do
+                # Check required fields
+                for key in "githubUname" "publicEmail" "desc" "domain" "subDomain" "records"; do
                   VALUE=$(jq -r --arg k "$key" '.[$k] // empty' "$FILE")
                   if [[ -z "$VALUE" ]]; then
                     error_exit "Missing required field '$key' in $FILE"
+                  fi
+                done
+
+                # Check subdomain uniqueness
+                PR_SUB=$(jq -r '.subDomain' "$FILE")
+                for s in "${EXISTING_SUBS[@]}"; do
+                  if [[ "$PR_SUB" == "$s" ]]; then
+                    error_exit "Subdomain '$PR_SUB' already exists for another user"
                   fi
                 done
 
@@ -118,19 +134,18 @@ jobs:
                 done
 
                 # Extract first label
-                SUB=$(jq -r '.subDomain' "$FILE")
-                FIRST_LABEL="${SUB%%.*}"
+                FIRST_LABEL="${PR_SUB%%.*}"
 
                 # Check blocked.txt - blocked everywhere
                 for b in "${BLOCKED_NAMES[@]}"; do
                   if [[ "$b" == *"*" ]]; then
                     PREFIX="${b%\*}"
-                    if [[ "$SUB" == "$PREFIX"* ]] || [[ "$FIRST_LABEL" == "$PREFIX"* ]]; then
-                      error_exit "Subdomain '$SUB' is completely blocked"
+                    if [[ "$PR_SUB" == "$PREFIX"* ]] || [[ "$FIRST_LABEL" == "$PREFIX"* ]]; then
+                      error_exit "Subdomain '$PR_SUB' is completely blocked"
                     fi
                   else
-                    if [[ "$SUB" == "$b" ]] || [[ "$FIRST_LABEL" == "$b" ]]; then
-                      error_exit "Subdomain '$SUB' is completely blocked"
+                    if [[ "$PR_SUB" == "$b" ]] || [[ "$FIRST_LABEL" == "$b" ]]; then
+                      error_exit "Subdomain '$PR_SUB' is completely blocked"
                     fi
                   fi
                 done
@@ -140,11 +155,11 @@ jobs:
                   if [[ "$r" == *"*" ]]; then
                     PREFIX="${r%\*}"
                     if [[ "$FIRST_LABEL" == "$PREFIX"* ]]; then
-                      error_exit "Subdomain '$SUB' is reserved at root level"
+                      error_exit "Subdomain '$PR_SUB' is reserved at root level"
                     fi
                   else
                     if [[ "$FIRST_LABEL" == "$r" ]]; then
-                      error_exit "Subdomain '$SUB' is reserved at root level"
+                      error_exit "Subdomain '$PR_SUB' is reserved at root level"
                     fi
                   fi
                 done
