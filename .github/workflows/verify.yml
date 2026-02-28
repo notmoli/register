@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -28,7 +28,7 @@ jobs:
           USER="${{ github.actor }}"
           RESERVED="reserved.txt"
 
-          # Load reserved names
+          # Load reserved root-level names
           if [ -f "$RESERVED" ]; then
             mapfile -t RESERVED_NAMES < "$RESERVED"
           else
@@ -38,39 +38,47 @@ jobs:
           while read status file; do
             echo "Checking $status $file"
 
-            # Only allow added files
-            if [ "$status" != "A" ]; then
-              echo "❌ Only new files can be added"
+            # 1️⃣ Block workflow edits
+            if [[ "$file" =~ ^.github/ ]]; then
+              echo "❌ Editing workflow files is not allowed"
               exit 1
             fi
 
-            # Block workflow / config edits
-            if [[ "$file" == .github/* ]]; then
-              echo "❌ Editing .github is not allowed"
+            # 2️⃣ Block reserved.txt edits
+            if [[ "$file" == "$RESERVED" ]]; then
+              echo "❌ Editing reserved.txt is not allowed"
               exit 1
             fi
 
-            # Must be inside records/<github-username>/
-            if [[ ! "$file" =~ ^records/$USER/[^/]+\.json$ ]]; then
-              echo "❌ Files must be added to records/$USER/"
-              exit 1
-            fi
-
-            # Validate JSON
-            jq . "$file" > /dev/null || {
-              echo "❌ Invalid JSON: $file"
-              exit 1
-            }
-
-            SUB=$(jq -r '.subdomain' "$file")
-
-            # Check reserved root-level subdomains
-            for r in "${RESERVED_NAMES[@]}"; do
-              if [ "$SUB" = "$r" ]; then
-                echo "❌ '$SUB' is reserved at root level"
+            # 3️⃣ Must be inside user's folder if inside records/
+            if [[ "$file" =~ ^records/ ]]; then
+              if [[ ! "$file" =~ ^records/$USER/[^/]+\.json$ ]]; then
+                echo "❌ Files inside records/ must be in your own folder: records/$USER/"
                 exit 1
               fi
-            done
+            fi
+
+            # 4️⃣ Only allow CRUD on user's own folder
+            # Status can be: A=added, M=modified, D=deleted
+            if [[ "$file" =~ ^records/$USER/ ]]; then
+              if [[ ! "$status" =~ ^(A|M|D)$ ]]; then
+                echo "❌ Only add, modify, or delete allowed in your folder"
+                exit 1
+              fi
+
+              # If file exists (added or modified), validate JSON & reserved subdomain
+              if [[ "$status" != "D" ]]; then
+                jq . "$file" > /dev/null || { echo "❌ Invalid JSON in $file"; exit 1; }
+
+                SUB=$(jq -r '.subdomain' "$file")
+                for r in "${RESERVED_NAMES[@]}"; do
+                  if [ "$SUB" = "$r" ]; then
+                    echo "❌ Subdomain '$SUB' is reserved at root level"
+                    exit 1
+                  fi
+                done
+              fi
+            fi
 
           done < changes.txt
 
