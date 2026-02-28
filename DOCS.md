@@ -1,6 +1,6 @@
 # Documentation
 
-Welcome to the **029290.xyz free subdomain service**. This document provides **rules, structure, and guidelines** for contributing to the repository and registering subdomains under the 029290.xyz.
+This document provides **rules, structure, and guidelines** for contributing to the repository and registering subdomains at 2929 Domains.
 
 ---
 
@@ -23,6 +23,7 @@ Each user has a personal folder inside `/records/`:
   "githubUname": "",
   "publicEmail": "",
   "desc": "",
+  "domain" : "",
   "subDomain": "",
   "records": [
     { "name": "", "type": "A|AAAA|CNAME|TXT", "value": "", "proxied": "true|false" }
