@@ -1,1 +1,77 @@
+name: Verify PR
 
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: files
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff --name-status origin/${{ github.base_ref }} > changes.txt
+          cat changes.txt
+
+      - name: Validate changes
+        run: |
+          set -e
+
+          USER="${{ github.actor }}"
+          RESERVED="reserved.txt"
+
+          # Load reserved names
+          if [ -f "$RESERVED" ]; then
+            mapfile -t RESERVED_NAMES < "$RESERVED"
+          else
+            RESERVED_NAMES=()
+          fi
+
+          while read status file; do
+            echo "Checking $status $file"
+
+            # Only allow added files
+            if [ "$status" != "A" ]; then
+              echo "❌ Only new files can be added"
+              exit 1
+            fi
+
+            # Block workflow / config edits
+            if [[ "$file" == .github/* ]]; then
+              echo "❌ Editing .github is not allowed"
+              exit 1
+            fi
+
+            # Must be inside records/<github-username>/
+            if [[ ! "$file" =~ ^records/$USER/[^/]+\.json$ ]]; then
+              echo "❌ Files must be added to records/$USER/"
+              exit 1
+            fi
+
+            # Validate JSON
+            jq . "$file" > /dev/null || {
+              echo "❌ Invalid JSON: $file"
+              exit 1
+            }
+
+            SUB=$(jq -r '.subdomain' "$file")
+
+            # Check reserved root-level subdomains
+            for r in "${RESERVED_NAMES[@]}"; do
+              if [ "$SUB" = "$r" ]; then
+                echo "❌ '$SUB' is reserved at root level"
+                exit 1
+              fi
+            done
+
+          done < changes.txt
+
+          echo "✅ All checks passed"
